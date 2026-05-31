@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RemoteDrive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Syne:wght@500;700&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #07090e;
+      --panel:      #0b0f18;
+      --surface:    #111827;
+      --surface-2:  #1a2233;
+      --border:     #1c2840;
+      --border-2:   #283a55;
+      --accent:     #00c9a7;
+      --accent-dim: rgba(0,201,167,0.10);
+      --amber:      #f59e0b;
+      --amber-dim:  rgba(245,158,11,0.10);
+      --green:      #4ade80;
+      --green-dim:  rgba(74,222,128,0.08);
+      --red:        #f87171;
+      --text:       #dde6f0;
+      --text-2:     #8ea3bc;
+      --text-3:     #45607a;
+    }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'JetBrains Mono', 'Consolas', monospace;
+      font-size: 12px;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Subtle grid texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 36px 36px;
+      opacity: 0.22;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       PIN OVERLAY
+    ───────────────────────────────────────────────────────────────── */
+    #pin-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 9, 14, 0.94);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+
+    #pin-card {
+      position: relative;
+      background: var(--panel);
+      border: 1px solid var(--border-2);
+      width: 360px;
+      padding: 36px 36px 32px;
+      animation: rise 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Teal top bar */
+    #pin-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    .pin-wordmark {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .pin-wordmark span { color: var(--accent); }
+
+    .pin-sub {
+      font-size: 10px;
+      color: var(--text-3);
+      margin-bottom: 30px;
+    }
+
+    .field-label {
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 8px;
+    }
+
+    #pin-input {
+      display: block;
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      letter-spacing: 0.35em;
+      outline: none;
+      transition: border-color 0.18s;
+      margin-bottom: 14px;
+    }
+    #pin-input:focus { border-color: var(--accent); }
+    #pin-input::placeholder { color: var(--text-3); font-size: 15px; letter-spacing: 0.15em; }
+
+    #pin-submit {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      border: none;
+      color: #07090e;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: opacity 0.18s;
+    }
+    #pin-submit:hover:not(:disabled) { opacity: 0.86; }
+    #pin-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #pin-error {
+      margin-top: 12px;
+      font-size: 10px;
+      color: var(--red);
+      text-align: center;
+      letter-spacing: 0.05em;
+      min-height: 14px;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       LAYOUT
+    ───────────────────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       TOPBAR
+    ───────────────────────────────────────────────────────────────── */
+    #topbar {
+      flex-shrink: 0;
+      height: 44px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    #home-btn {
+      flex-shrink: 0;
+      padding: 0 18px;
+      background: none;
+      border: none;
+      border-right: 1px solid var(--border);
+      color: var(--text-2);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: background 0.14s, color 0.14s;
+      white-space: nowrap;
+    }
+    #home-btn:hover { background: var(--surface); color: var(--accent); }
+
+    #breadcrumb {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 2px;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .crumb {
+      font-size: 11px;
+      color: var(--text-3);
+      white-space: nowrap;
+      cursor: pointer;
+      padding: 3px 5px;
+      border-radius: 2px;
+      transition: color 0.13s;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .crumb:hover { color: var(--accent); }
+    .crumb.active { color: var(--text-2); cursor: default; }
+    .crumb.active:hover { color: var(--text-2); }
+    .crumb-sep { color: var(--text-3); font-size: 10px; flex-shrink: 0; padding: 0 1px; user-select: none; }
+
+    #status-pill {
+      flex-shrink: 0;
+      padding: 0 16px;
+      border-left: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-3);
+      flex-shrink: 0;
+    }
+    .status-dot.on   { background: var(--accent); animation: blink 2.2s ease infinite; }
+    .status-dot.wait { background: var(--amber);  animation: blink 0.75s ease infinite; }
+    .status-dot.err  { background: var(--red); }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.25; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       MAIN CONTENT
+    ───────────────────────────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px;
+      position: relative;
+    }
+
+    #main::-webkit-scrollbar { width: 4px; }
+    #main::-webkit-scrollbar-track { background: transparent; }
+    #main::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+
+    /* ─────────────────────────────────────────────────────────────────
+       LOADING OVERLAY
+    ───────────────────────────────────────────────────────────────── */
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(7, 9, 14, 0.78);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      z-index: 10;
+    }
+    #loading-overlay.show { display: flex; }
+
+    .loader-ring {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      border: 2px solid var(--border-2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+    }
+    .loader-ring::after {
+      content: '';
+      position: absolute;
+      inset: 5px;
+      border: 1px solid var(--accent-dim);
+      border-radius: 50%;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: var(--text-3);
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       FILE GRID
+    ───────────────────────────────────────────────────────────────── */
+    #file-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+      gap: 7px;
+    }
+
+    /* Drives view: wider tiles */
+    #file-grid.drives-view {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .file-item {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 9px;
+      cursor: default;
+      user-select: none;
+      transition: background 0.13s, border-color 0.13s;
+
+      animation: popIn 0.18s ease both;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Stagger first several items */
+    .file-item:nth-child(1)  { animation-delay: 0.03s; }
+    .file-item:nth-child(2)  { animation-delay: 0.05s; }
+    .file-item:nth-child(3)  { animation-delay: 0.07s; }
+    .file-item:nth-child(4)  { animation-delay: 0.09s; }
+    .file-item:nth-child(5)  { animation-delay: 0.11s; }
+    .file-item:nth-child(6)  { animation-delay: 0.13s; }
+    .file-item:nth-child(n+7){ animation-delay: 0.15s; }
+
+    .file-item.can-open { cursor: pointer; }
+
+    .file-item.can-open:hover {
+      border-color: var(--border-2);
+      background: var(--surface);
+    }
+
+    /* Folder hover: amber tint */
+    .file-item.is-folder.can-open:hover {
+      border-color: var(--amber);
+      background: var(--amber-dim);
+    }
+
+    /* Drive hover: green tint */
+    .file-item.is-drive.can-open:hover {
+      border-color: var(--green);
+      background: var(--green-dim);
+    }
+
+    .item-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .item-meta { width: 100%; min-width: 0; }
+
+    .item-name {
+      font-size: 11px;
+      color: var(--text);
+      word-break: break-all;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.45;
+      margin-bottom: 4px;
+    }
+
+    .item-tag {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .item-tag.folder { color: var(--amber); }
+    .item-tag.drive  { color: var(--green); }
+
+    /* Drives view: horizontal layout */
+    #file-grid.drives-view .file-item {
+      flex-direction: row;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 14px;
+    }
+    #file-grid.drives-view .item-icon { font-size: 30px; }
+
+    /* ─────────────────────────────────────────────────────────────────
+       EMPTY / ERROR
+    ───────────────────────────────────────────────────────────────── */
+    .center-msg {
+      grid-column: 1 / -1;
+      padding: 60px 20px;
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+    }
+    .center-msg.error { color: var(--red); }
+    .center-msg.hint  { color: var(--text-3); font-style: italic; }
+  </style>
+</head>
+<body>
+
+<!-- ── PIN OVERLAY ─────────────────────────────────────────────────────── -->
+<div id="pin-overlay">
+  <div id="pin-card">
+    <div class="pin-wordmark">remote<span>drive</span></div>
+    <div class="pin-sub">// secure access terminal</div>
+    <div class="field-label">Access PIN</div>
+    <input type="password" id="pin-input" placeholder="········" maxlength="64" autocomplete="off">
+    <button id="pin-submit">Connect</button>
+    <div id="pin-error"></div>
+  </div>
+</div>
+
+<!-- ── APP SHELL ───────────────────────────────────────────────────────── -->
+<div id="app">
+
+  <div id="topbar">
+    <button id="home-btn">⊞ Drives</button>
+    <div id="breadcrumb"></div>
+    <div id="status-pill">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">—</span>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="loading-overlay">
+      <div class="loader-ring"></div>
+      <div class="loading-label">waiting for computer #1</div>
+    </div>
+    <div id="file-grid"></div>
+  </div>
+
+</div>
+
+<!-- ── FIREBASE + APP LOGIC ────────────────────────────────────────────── -->
+<script type="module">
+import { initializeApp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ─── FIREBASE CONFIG ─── Replace all values below ────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TIMEOUT_MS = 30_000; // ms to wait before "Computer #1 offline" message
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getFirestore(app);
+
+// Unique ID for this browser tab / session
+const SESSION_ID = crypto.randomUUID();
+
+let pinHash      = null;   // SHA-256 of PIN (set after successful login)
+let activeReqId  = null;   // ID of the currently-awaited request
+let pendingUnsub = null;   // Firestore listener cleanup function
+
+
+// ── SHA-256 helper ────────────────────────────────────────────────────────────
+async function sha256(str) {
+  const buf = await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(str)
+  );
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+
+// ── PIN FLOW ──────────────────────────────────────────────────────────────────
+document.getElementById('pin-input')
+  .addEventListener('keydown', e => { if (e.key === 'Enter') submitPin(); });
+document.getElementById('pin-submit')
+  .addEventListener('click', submitPin);
+
+async function submitPin() {
+  const pinEl  = document.getElementById('pin-input');
+  const errEl  = document.getElementById('pin-error');
+  const btnEl  = document.getElementById('pin-submit');
+  const pin    = pinEl.value;
+  if (!pin) return;
+
+  btnEl.disabled    = true;
+  btnEl.textContent = 'Connecting...';
+  errEl.textContent = '';
+
+  const hash  = await sha256(pin);
+  const reqId = crypto.randomUUID();
+
+  try {
+    // Attempt writing the first real request — Firestore rules validate the PIN.
+    // If rules deny the write, the catch block handles it.
+    await setDoc(doc(db, 'requests', reqId), {
+      sessionId: SESSION_ID,
+      path:      'DRIVES',
+      status:    'pending',
+      pinHash:   hash,
+      timestamp: serverTimestamp()
+    });
+
+    // Write succeeded → PIN is correct
+    pinHash = hash;
+    document.getElementById('pin-overlay').style.display = 'none';
+
+    // Wire up the listener for the response to this first request
+    activeReqId = reqId;
+    updateBreadcrumb('DRIVES');
+    setStatus('wait');
+    showLoading(true);
+    listenForResponse(reqId, 'DRIVES');
+
+  } catch (err) {
+    errEl.textContent = err.code === 'permission-denied'
+      ? '✗ Wrong PIN.'
+      : `✗ Error: ${err.message}`;
+    btnEl.disabled    = false;
+    btnEl.textContent = 'Connect';
+    pinEl.value       = '';
+    pinEl.focus();
+  }
+}
+
+
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
+document.getElementById('home-btn')
+  .addEventListener('click', () => navigateTo('DRIVES'));
+
+async function navigateTo(path) {
+  if (!pinHash) return;
+
+  // Cancel any in-flight listener
+  if (pendingUnsub) { pendingUnsub(); pendingUnsub = null; }
+
+  updateBreadcrumb(path);
+  showLoading(true);
+  setStatus('wait');
+
+  const reqId = crypto.randomUUID();
+  activeReqId = reqId;
+
+  try {
+    await setDoc(doc(db, 'requests', reqId), {
+      sessionId: SESSION_ID,
+      path,
+      status:    'pending',
+      pinHash,
+      timestamp: serverTimestamp()
+    });
+  } catch (err) {
+    showError(`Request failed: ${err.message}`);
+    return;
+  }
+
+  listenForResponse(reqId, path);
+}
+
+
+// ── RESPONSE LISTENER ────────────────────────────────────────────────────────
+function listenForResponse(reqId, path) {
+  const resRef = doc(db, 'responses', reqId);
+  const reqRef = doc(db, 'requests',  reqId);
+
+  // Timeout guard — if Computer #1 doesn't respond in time
+  const timeoutId = setTimeout(() => {
+    if (reqId !== activeReqId) return;
+    if (pendingUnsub) { pendingUnsub(); pendingUnsub = null; }
+    showError('No response — is Computer #1 running?');
+  }, TIMEOUT_MS);
+
+  // Listen for Computer #1's response document
+  const unsubRes = onSnapshot(resRef, snap => {
+    if (!snap.exists() || reqId !== activeReqId) return;
+    clearTimeout(timeoutId);
+    unsubRes();
+    unsubReq();
+    pendingUnsub = null;
+
+    showLoading(false);
+    setStatus('on');
+
+    const data = snap.data();
+    if (data.error) showError(data.error);
+    else            renderItems(data.items || [], path);
+  });
+
+  // Also watch the request doc for a "rejected" status
+  const unsubReq = onSnapshot(reqRef, snap => {
+    if (!snap.exists() || reqId !== activeReqId) return;
+    if (snap.data().status === 'rejected') {
+      clearTimeout(timeoutId);
+      unsubRes();
+      unsubReq();
+      pendingUnsub = null;
+      showError('Request rejected — PIN may have changed.');
+    }
+  });
+
+  pendingUnsub = () => {
+    unsubRes();
+    unsubReq();
+    clearTimeout(timeoutId);
+  };
+}
+
+
+// ── RENDER ITEMS ─────────────────────────────────────────────────────────────
+function renderItems(items, path) {
+  const grid = document.getElementById('file-grid');
+  grid.innerHTML = '';
+
+  if (items.length === 0) {
+    grid.innerHTML = '<div class="center-msg hint">[ empty ]</div>';
+    return;
+  }
+
+  const isDriveList = (path === 'DRIVES');
+  grid.className = isDriveList ? 'drives-view' : '';
+
+  for (const item of items) {
+    const isDrv = item.type === 'drive';
+    const isFld = item.type === 'folder';
+    const canOpen = isDrv || isFld;
+
+    const el  = document.createElement('div');
+    el.title  = item.name;
+    el.className = [
+      'file-item',
+      canOpen ? 'can-open' : '',
+      isDrv   ? 'is-drive' : '',
+      isFld   ? 'is-folder': '',
+    ].filter(Boolean).join(' ');
+
+    el.innerHTML = `
+      <div class="item-icon">${isDrv ? '💽' : isFld ? '📁' : fileIcon(item.name)}</div>
+      <div class="item-meta">
+        <div class="item-name">${esc(item.name)}</div>
+        <div class="item-tag ${isDrv ? 'drive' : isFld ? 'folder' : ''}">
+          ${isDrv ? 'drive' : isFld ? 'folder' : fileExt(item.name)}
+        </div>
+      </div>
+    `;
+
+    if (canOpen) {
+      el.addEventListener('dblclick', () => {
+        // Drives already carry the full path (e.g. "C:\"); folders need joining
+        const next = isDrv ? item.name : pathJoin(path, item.name);
+        navigateTo(next);
+      });
+    }
+
+    grid.appendChild(el);
+  }
+}
+
+
+// ── BREADCRUMB ────────────────────────────────────────────────────────────────
+function updateBreadcrumb(path) {
+  const bc = document.getElementById('breadcrumb');
+  bc.innerHTML = '';
+
+  const rootEl   = document.createElement('span');
+  rootEl.className = path === 'DRIVES' ? 'crumb active' : 'crumb';
+  rootEl.textContent = '~/';
+  if (path !== 'DRIVES') rootEl.addEventListener('click', () => navigateTo('DRIVES'));
+  bc.appendChild(rootEl);
+
+  if (path === 'DRIVES') return;
+
+  // Parse Windows path: "C:\\Users\\Documents"
+  const parts = [];
+  const m = path.replace(/\//g, '\\').match(/^([A-Z]:\\)(.*)/i);
+  if (m) {
+    parts.push({ label: m[1], path: m[1] });
+    const segs = m[2].split('\\').filter(Boolean);
+    let   cum  = m[1];
+    for (const seg of segs) {
+      cum = cum.endsWith('\\') ? cum + seg : cum + '\\' + seg;
+      parts.push({ label: seg, path: cum });
+    }
+  }
+
+  for (let i = 0; i < parts.length; i++) {
+    const sep = document.createElement('span');
+    sep.className = 'crumb-sep';
+    sep.textContent = '›';
+    bc.appendChild(sep);
+
+    const s = document.createElement('span');
+    const isLast = i === parts.length - 1;
+    s.className   = isLast ? 'crumb active' : 'crumb';
+    s.textContent = parts[i].label;
+    s.title       = parts[i].path;
+    if (!isLast) s.addEventListener('click', () => navigateTo(parts[i].path));
+    bc.appendChild(s);
+  }
+}
+
+
+// ── STATUS + LOADING ──────────────────────────────────────────────────────────
+function setStatus(state) {
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className = `status-dot ${state}`;
+  const labels = { on: 'connected', wait: 'waiting...', err: 'error' };
+  text.textContent = labels[state] ?? '—';
+}
+
+function showLoading(on) {
+  document.getElementById('loading-overlay').classList.toggle('show', on);
+  if (on) document.getElementById('file-grid').innerHTML = '';
+}
+
+function showError(msg) {
+  showLoading(false);
+  setStatus('err');
+  document.getElementById('file-grid').innerHTML =
+    `<div class="center-msg error">✗ ${esc(msg)}</div>`;
+}
+
+
+// ── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+function pathJoin(base, name) {
+  if (base === 'DRIVES') return name;
+  return base.endsWith('\\') ? base + name : base + '\\' + name;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function fileExt(name) {
+  const p = name.lastIndexOf('.');
+  return p > 0 ? name.slice(p + 1).toLowerCase() : 'file';
+}
+
+function fileIcon(name) {
+  const e = fileExt(name);
+  const map = {
+    // Docs
+    txt:'📄', md:'📄', rtf:'📄',
+    pdf:'📕',
+    doc:'📝', docx:'📝', odt:'📝',
+    xls:'📊', xlsx:'📊', csv:'📊', ods:'📊',
+    ppt:'📊', pptx:'📊', odp:'📊',
+    // Images
+    jpg:'🖼️', jpeg:'🖼️', png:'🖼️', gif:'🖼️',
+    bmp:'🖼️', webp:'🖼️', svg:'🖼️', ico:'🖼️', tiff:'🖼️',
+    // Audio
+    mp3:'🎵', wav:'🎵', flac:'🎵', ogg:'🎵', aac:'🎵', m4a:'🎵',
+    // Video
+    mp4:'🎬', avi:'🎬', mkv:'🎬', mov:'🎬', wmv:'🎬', webm:'🎬',
+    // Archives
+    zip:'🗜️', rar:'🗜️', '7z':'🗜️', tar:'🗜️', gz:'🗜️', bz2:'🗜️',
+    // Executables / scripts
+    exe:'⚙️', msi:'⚙️', bat:'⚙️', cmd:'⚙️', ps1:'⚙️', sh:'⚙️',
+    // Code
+    py:'🐍',
+    js:'📜', ts:'📜', jsx:'📜', tsx:'📜', mjs:'📜',
+    html:'🌐', css:'🎨',
+    json:'📋', xml:'📋', yaml:'📋', yml:'📋', toml:'📋', ini:'📋',
+    // Data / DB
+    db:'🗄️', sqlite:'🗄️', sqlite3:'🗄️', sql:'🗄️',
+    // Fonts
+    ttf:'🔤', otf:'🔤', woff:'🔤', woff2:'🔤',
+  };
+  return map[e] || '📄';
+}
+
+</script>
+</body>
+</html>
