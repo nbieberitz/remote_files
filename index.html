@@ -461,7 +461,7 @@
 <script type="module">
 import { initializeApp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp }
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ─── FIREBASE CONFIG ─── Replace all values below ────────────────────────────
@@ -517,6 +517,20 @@ async function submitPin() {
   errEl.textContent = '';
 
   const hash  = await sha256(pin);
+  console.log('[DEBUG] Typed hash:  ', hash);
+
+  // Debug: read stored hash from config/auth
+  try {
+    const authSnap = await getDoc(doc(db, 'config', 'auth'));
+    if (authSnap.exists()) {
+      console.log('[DEBUG] Stored hash: ', authSnap.data().pinHash);
+    } else {
+      console.log('[DEBUG] config/auth does not exist yet!');
+    }
+  } catch (e) {
+    console.log('[DEBUG] Could not read config/auth:', e.message);
+  }
+
   const reqId = crypto.randomUUID();
 
   try {
